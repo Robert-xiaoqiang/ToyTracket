@@ -98,22 +98,28 @@ class DCFNetTraker(object):
 
         return cxy_wh_2_rect1(self.target_pos, self.target_sz)  # 1-index
 
-
+def get_new_target(points):
+    maxxy = np.max(points, axis = 0)
+    minxy = np.min(points, axis = 0)
+    rect = np.array([ minxy[0], minxy[1], maxxy[0] - minxy[0], maxxy[1] - minxy[1] ])
+    return rect1_2_cxy_wh(rect)
+    
 if __name__ == '__main__':
     # base dataset path and setting
     parser = argparse.ArgumentParser(description='Test DCFNet on OTB')
-    parser.add_argument('--dataset', metavar='SET', default='OTB2015',
-                        choices=['OTB2013', 'OTB2015'], help='tune on which dataset')
+    parser.add_argument('--dataset', metavar='SET', default='mgtv_val',
+                        choices=['mgtv_val', 'mgtv_test','OTB2013', 'OTB2015'], help='tune on which dataset')
     # /train/work/ from author
     # /work/crop_125_2.0/ from xqwang
-    parser.add_argument('--model', metavar='PATH', default='/home/xqwang/projects/tracking/UDT/train/work/checkpoint.pth.tar')
+    parser.add_argument('--model', metavar='PATH', default='/home/xqwang/projects/tracking/UDT/snapshots/crop_125_2.0/checkpoint.pth.tar')
     #
     #
     args = parser.parse_args()
 
     dataset = args.dataset
-    base_path = '/home/xqwang/projects/tracking/datasets/OTB100' # OTB100 == OTB2015
-    json_path = join('/home/xqwang/projects/tracking/UDT/track/dataset', dataset + '.json')
+    data_root_path = '/home/xqwang/projects/tracking/datasets/mgtv/val_preprocessed'
+    result_output_path = '/home/xqwang/projects/tracking/UDT/result'     
+    json_path = join(data_root_path, dataset + '.json')
     annos = json.load(open(json_path, 'r'))
     videos = sorted(annos.keys())
 
@@ -130,13 +136,13 @@ if __name__ == '__main__':
     # loop videos
     for video_id, video in enumerate(videos):  # run without resetting
         video_path_name = annos[video]['name']
-        init_rect = np.array(annos[video]['init_rect']).astype(np.float)
-        image_files = [join(base_path, video_path_name, 'img', im_f) for im_f in annos[video]['image_files']]
+        points = np.array(annos[video]['initial_points']).astype(np.float64)
+        target_pos, target_sz = rect1_2_cxy_wh(np.array(annos[video]['initial_circum_rectangle']))
+        
+        image_files = [join(data_root_path, video_path_name, 'img', im_f) for im_f in annos[video]['image_files']]
         n_images = len(image_files)
 
         tic = time.time()  # time start
-
-        target_pos, target_sz = rect1_2_cxy_wh(init_rect)  # OTB label is 1-indexed
 
         im = cv2.imread(image_files[0])  # HxWxC
 
@@ -152,7 +158,7 @@ if __name__ == '__main__':
         target = patch - config.net_average_image
         net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
 
-        res = [cxy_wh_2_rect1(target_pos, target_sz)]  # save in .txt
+        res = [ points ]  # save in .txt
         patch_crop = np.zeros((config.num_scale, patch.shape[0], patch.shape[1], patch.shape[2]), np.float32)
         for f in range(1, n_images):  # track
             im = cv2.imread(image_files[f])
@@ -164,20 +170,27 @@ if __name__ == '__main__':
 
             search = patch_crop - config.net_average_image
             response = net(torch.Tensor(search).cuda())
-            peak, idx = torch.max(response.view(config.num_scale, -1), 1)
-            peak = peak.data.cpu().numpy() * config.scale_penalties
-            best_scale = np.argmax(peak)
-            r_max, c_max = np.unravel_index(idx[best_scale].data.cpu().numpy(), config.net_input_size)
 
-            if r_max > config.net_input_size[0] / 2:
-                r_max = r_max - config.net_input_size[0]
-            if c_max > config.net_input_size[1] / 2:
-                c_max = c_max - config.net_input_size[1]
-            window_sz = target_sz * (config.scale_factor[best_scale] * (1 + config.padding))
+            values, indices = torch.topk(response.view(config.num_scale, -1), 4, dim = 1) # Sx4
+            values = values.data.cpu().numpy() * config.scale_penalties
+            best_scale_per_point = np.argmax(values, axis = 0) # shape 4
+            for pi in range(4):
+                cur_scale_id = best_scale_per_point[pi]
+                index = indices[cur_scale_id, pi]
+                # shape 1
+                r_max, c_max = np.unravel_index(index.data.cpu().numpy(), config.net_input_size)
+                if r_max > config.net_input_size[0] / 2:
+                    r_max = r_max - config.net_input_size[0]
+                if c_max > config.net_input_size[1] / 2:
+                    c_max = c_max - config.net_input_size[1]                           
 
-            target_pos = target_pos + np.array([c_max, r_max]) * window_sz / config.net_input_size
-            target_sz = np.minimum(np.maximum(window_sz / (1 + config.padding), min_sz), max_sz)
-
+                window_sz = target_sz * (config.scale_factor[best_scale] * (1 + config.padding))
+                # (x, y) += (col, row)
+                points[pi] = points[pi] + np.array([c_max, r_max]) * window_sz / config.net_input_size
+            # target_pos = target_pos + np.array([c_max, r_max]) * window_sz / config.net_input_size
+            # target_sz = np.minimum(np.maximum(window_sz / (1 + config.padding), min_sz), max_sz)          
+            target_pos, target_sz = get_new_target(points)
+            
             # model update
             window_sz = target_sz * (1 + config.padding)
             bbox = cxy_wh_2_bbox(target_pos, window_sz)
@@ -185,16 +198,7 @@ if __name__ == '__main__':
             target = patch - config.net_average_image
             net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda(), lr=config.interp_factor)
 
-            res.append(cxy_wh_2_rect1(target_pos, target_sz))  # 1-index
-
-            if visualization:
-                im_show = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                cv2.rectangle(im_show, (int(target_pos[0] - target_sz[0] / 2), int(target_pos[1] - target_sz[1] / 2)),
-                              (int(target_pos[0] + target_sz[0] / 2), int(target_pos[1] + target_sz[1] / 2)),
-                              (0, 255, 0), 3)
-                cv2.putText(im_show, str(f), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
-                cv2.imshow(video, im_show)
-                cv2.waitKey(1)
+            res.append(points)  # 1-index
 
         toc = time.time() - tic
         fps = n_images / toc
@@ -202,9 +206,9 @@ if __name__ == '__main__':
         print('{:3d} Video: {:12s} Time: {:3.1f}s\tSpeed: {:3.1f}fps'.format(video_id, video, toc, fps))
 
         # save result
-        test_path = join('/home/xqwang/projects/tracking/UDT/result', dataset, 'DCFNet_test')
-        if not isdir(test_path): makedirs(test_path)
-        result_path = join(test_path, video + '.txt')
+        txt_base_path = join(result_output_path, dataset, 'DCFNet_test')
+        os.makedirs(txt_base_path, exist_ok = True)
+        result_path = join(txt_base_path, video + '.txt')
         with open(result_path, 'w') as f:
             for x in res:
                 f.write(','.join(['{:.2f}'.format(i) for i in x]) + '\n')

@@ -1,0 +1,5 @@
+/crop*
+/snapshots/
+/work/
+/train/work/
+/*.json

@@ -38,7 +38,7 @@ parser.add_argument('--save', '-s', default='./work', type=str, help='directory 
 
 args = parser.parse_args()
 
-print args
+print(args)
 best_loss = 1e6
 
 
@@ -108,7 +108,7 @@ if args.resume:
 cudnn.benchmark = True
 
 # training data
-crop_base_path = join('dataset', 'crop_{:d}_{:1.1f}'.format(args.input_sz, args.padding))
+crop_base_path = join('/home/xqwang/projects/tracking/UDT', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
 if not isdir(crop_base_path):
     print('please run gen_training_data.py --output_size {:d} --padding {:.1f}!'.format(args.input_sz, args.padding))
     exit()
@@ -191,12 +191,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
             s1_response = model(template_feat, search1_feat, label)
         # label transform
         peak, index = torch.max(s1_response.view(args.batch_size*gpu_num, -1), 1)
-        r_max, c_max = np.unravel_index(index, [config.output_sz, config.output_sz])
+        r_max, c_max = np.unravel_index(index.data.cpu().numpy(), [config.output_sz, config.output_sz])
         fake_y = np.zeros((args.batch_size*gpu_num, 1, config.output_sz, config.output_sz))
         # label shift
         for j in range(args.batch_size*gpu_num):
-            shift_y  = np.roll(initial_y, r_max[j])
-            fake_y[j,...] = np.roll(shift_y, c_max[j])
+            shift_y  = np.roll(initial_y, r_max[j], axis = 0)
+            fake_y[j,...] = np.roll(shift_y, c_max[j], axis = 1)
         fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size*gpu_num, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
         fake_yf = fake_yf.cuda(non_blocking=True)
 
@@ -204,11 +204,11 @@ def train(train_loader, model, criterion, optimizer, epoch):
         with torch.no_grad():
             s2_response = model(search1_feat, search2_feat, fake_yf)
         peak, index = torch.max(s2_response.view(args.batch_size*gpu_num, -1), 1)
-        r_max, c_max = np.unravel_index(index, [config.output_sz, config.output_sz])
+        r_max, c_max = np.unravel_index(index.data.cpu().numpy(), [config.output_sz, config.output_sz])
         fake_y = np.zeros((args.batch_size*gpu_num, 1, config.output_sz, config.output_sz))
         for j in range(args.batch_size*gpu_num):
-            shift_y = np.roll(initial_y, r_max[j])
-            fake_y[j,...] = np.roll(shift_y, c_max[j])
+            shift_y = np.roll(initial_y, r_max[j], axis = 0)
+            fake_y[j,...] = np.roll(shift_y, c_max[j], axis = 1)
         fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size*gpu_num, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
         fake_yf = fake_yf.cuda(non_blocking=True)
     
@@ -270,22 +270,22 @@ def validate(val_loader, model, criterion):
             s1_response = model(template_feat, search1_feat, label)
             # label transform
             peak, index = torch.max(s1_response.view(args.batch_size*gpu_num, -1), 1)
-            r_max, c_max = np.unravel_index(index, [config.output_sz, config.output_sz])
+            r_max, c_max = np.unravel_index(index.data.cpu().numpy(), [config.output_sz, config.output_sz])
             fake_y = np.zeros((args.batch_size*gpu_num, 1, config.output_sz, config.output_sz))
             for j in range(args.batch_size*gpu_num):
-                shift_y  = np.roll(initial_y, r_max[j])
-                fake_y[j,...] = np.roll(shift_y, c_max[j])
+                shift_y  = np.roll(initial_y, r_max[j], axis = 0)
+                fake_y[j,...] = np.roll(shift_y, c_max[j], axis = 1)
             fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size*gpu_num, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
             fake_yf = fake_yf.cuda(non_blocking=True)
 
             # forward tracking 2
             s2_response = model(search1_feat, search2_feat, fake_yf)
             peak, index = torch.max(s2_response.view(args.batch_size*gpu_num, -1), 1)
-            r_max, c_max = np.unravel_index(index, [config.output_sz, config.output_sz])
+            r_max, c_max = np.unravel_index(index.data.cpu().numpy(), [config.output_sz, config.output_sz])
             fake_y = np.zeros((args.batch_size*gpu_num, 1, config.output_sz, config.output_sz))
             for j in range(args.batch_size*gpu_num):
-                shift_y = np.roll(initial_y, r_max[j])
-                fake_y[j,...] = np.roll(shift_y, c_max[j])
+                shift_y = np.roll(initial_y, r_max[j], axis = 0)
+                fake_y[j,...] = np.roll(shift_y, c_max[j], axis = 1)
             fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size*gpu_num, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
             fake_yf = fake_yf.cuda(non_blocking=True)
    

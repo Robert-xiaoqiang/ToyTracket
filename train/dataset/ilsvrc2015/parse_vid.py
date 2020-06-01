@@ -7,18 +7,16 @@ import xml.etree.ElementTree as ET
 import pdb
 
 parser = argparse.ArgumentParser(description='Parse the VID Annotations for training DCFNet')
-parser.add_argument('data', metavar='DIR', help='path to VID')
+parser.add_argument('--data', required = False, default = '/home/xqwang/projects/tracking/datasets/ILSVRC2015', metavar='DIR', help='path to VID')
 args = parser.parse_args()
 
 print('VID2015 Data:')
 VID_base_path = args.data
 ann_base_path = join(VID_base_path, 'Annotations/VID/train/')
 img_base_path = join(VID_base_path, 'Data/VID/train/')
-sub_sets = sorted({'a', 'b', 'c', 'd', 'e'})
-# sub_sets = sorted({'ILSVRC2015_VID_train_0000', 'ILSVRC2015_VID_train_0001', 'ILSVRC2015_VID_train_0002', 'ILSVRC2015_VID_train_0003'})
-total_frame = 0
+# sub_sets = sorted({'a', 'b', 'c', 'd', 'e'})
+sub_sets = sorted({'ILSVRC2015_VID_train_0000', 'ILSVRC2015_VID_train_0001'})
 
-vid = []
 for sub_set in sub_sets:
     sub_set_base_path = join(ann_base_path, sub_set)
     videos = sorted(listdir(sub_set_base_path))
@@ -42,7 +40,7 @@ for sub_set in sub_sets:
         s.append(v)
     vid.append(s)
 print('save json (raw vid info), please wait 1 min~')
-print('total frame number: {:d}'.format(total_frame))
+print('total frame number: {:d}'.format(total_frame)) # change crop_image.py according to it
 json.dump(vid, open('vid.json', 'w'), indent=2)
 print('done!')
 

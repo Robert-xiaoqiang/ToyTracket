@@ -14,15 +14,18 @@ def cxy_wh_2_bbox(cxy, wh):
     return np.array([cxy[0]-wh[0]/2, cxy[1]-wh[1]/2, cxy[0]+wh[0]/2, cxy[1]+wh[1]/2])  # 0-index
 
 
-def gaussian_shaped_labels(sigma, sz):
+def gaussian_shaped_labels(sigma, sz, pos = None):
     x, y = np.meshgrid(np.arange(1, sz[0]+1) - np.floor(float(sz[0]) / 2), np.arange(1, sz[1]+1) - np.floor(float(sz[1]) / 2))
     d = x ** 2 + y ** 2
     g = np.exp(-0.5 / (sigma ** 2) * d)
-    g = np.roll(g, int(-np.floor(float(sz[0]) / 2.) + 1), axis=0)
-    g = np.roll(g, int(-np.floor(float(sz[1]) / 2.) + 1), axis=1)
+    g = np.roll(g, int(-np.floor(float(sz[1]) / 2.) + 1), axis=0)
+    g = np.roll(g, int(-np.floor(float(sz[0]) / 2.) + 1), axis=1)
+    if pos is not None:
+        g = np.roll(g, int(pos[1]), axis=0)
+        g = np.roll(g, int(pos[0]), axis=1)
     return g
 
-
+# crop and image shape to tensor shape
 def crop_chw(image, bbox, out_sz, padding=(0, 0, 0)):
     a = (out_sz-1) / (bbox[2]-bbox[0])
     b = (out_sz-1) / (bbox[3]-bbox[1])
@@ -36,4 +39,4 @@ def crop_chw(image, bbox, out_sz, padding=(0, 0, 0)):
 
 if __name__ == '__main__':
     a = gaussian_shaped_labels(10, [5,5])
-    print a
+    print(a)

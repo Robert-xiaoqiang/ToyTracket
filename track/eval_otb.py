@@ -61,9 +61,9 @@ def convert_bb_to_center(bboxes):
 
 
 def eval_auc(dataset='OTB2015', tracker_reg='S*', start=0, end=1e6):
-    list_path = os.path.join('dataset', dataset + '.json')
+    list_path = os.path.join('/home/xqwang/projects/tracking/UDT/track/dataset', dataset + '.json')
     annos = json.load(open(list_path, 'r'))
-    seqs = annos.keys()
+    seqs = list(annos.keys())
 
     OTB2013 = ['carDark', 'car4', 'david', 'david2', 'sylvester', 'trellis', 'fish', 'mhyang', 'soccer', 'matrix',
                'ironman', 'deer', 'skating1', 'shaking', 'singer1', 'singer2', 'coke', 'bolt', 'boy', 'dudek',
@@ -84,7 +84,7 @@ def eval_auc(dataset='OTB2015', tracker_reg='S*', start=0, end=1e6):
                'dog', 'girl2', 'gym', 'human2', 'human5', 'human7', 'human8', 'kiteSurf', 'man', 'rubik', 'skater',
                'skater2', 'toy', 'trans', 'twinnings', 'vase']
 
-    trackers = glob.glob(fullfile('result', dataset, tracker_reg))
+    trackers = glob.glob(fullfile('/home/xqwang/projects/tracking/UDT/result', dataset, tracker_reg))
     trackers = trackers[start:min(end, len(trackers))]
 
     n_seq = len(seqs)

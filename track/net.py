@@ -3,6 +3,10 @@ import torch  # pytorch 0.4.0! fft
 import numpy as np
 import cv2
 
+from functools import partial
+import pickle
+pickle.load = partial(pickle.load, encoding="latin1")
+pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 
 def complex_mul(x, z):
     out_real = x[..., 0] * z[..., 0] - x[..., 1] * z[..., 1]
@@ -64,7 +68,7 @@ class DCFNet(nn.Module):
         checkpoint = torch.load(path)
         if 'state_dict' in checkpoint.keys():  # from training result
             state_dict = checkpoint['state_dict'] 
-            if 'module' in state_dict.keys()[0]:  # train with nn.DataParallel
+            if 'module' in list(state_dict.keys())[0]:  # train with nn.DataParallel
                 from collections import OrderedDict
                 new_state_dict = OrderedDict()
                 for k, v in state_dict.items():
@@ -102,7 +106,7 @@ if __name__ == '__main__':
     match_dict['feature.2.bias'] = 'conv2_b'
 
     for var_name in net.state_dict().keys():
-        print var_name
+        print(var_name)
         key_in_model = match_dict[var_name]
         param_in_model = var_name.rsplit('.', 1)[1]
         if 'weight' in var_name:

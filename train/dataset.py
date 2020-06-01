@@ -6,7 +6,7 @@ import numpy as np
 
 
 class VID(data.Dataset):
-    def __init__(self, file='dataset/dataset.json', root='dataset/crop_125_2.0', range=10, train=True):
+    def __init__(self, file='dataset.json', root='crop_125_2.0', range=10, train=True):
         self.imdb = json.load(open(file, 'r'))
         self.root = root
         self.range = range
