@@ -49,8 +49,12 @@ def main():
             success, image = vidcap.read()
             if not success: break
             f_name = '{:05d}.JPEG'.format(count)
-            absolute_f_name = os.path.join(prepross_output_path, 'videos', video_path, f_name)
-            os.makedirs(absolute_f_name, exist_ok = True)
+
+            f_dir_name = os.path.join(prepross_output_path, 'videos', video_path)
+            os.makedirs(f_dir_name, exist_ok = True)
+
+            absolute_f_name = os.path.join(f_dir_name, f_name)
+
             cv2.imwrite(absolute_f_name, image)
             f = {
                 'frame_sz': [ image.shape[1], image.shape[0] ],

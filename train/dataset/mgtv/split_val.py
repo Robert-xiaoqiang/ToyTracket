@@ -25,19 +25,17 @@ def parse_txt(file_name: str) -> List[tuple]:
             miny, maxy = min(y, miny), max(y, maxy)
             l.append((x, y))
     return l, [ minx, miny, maxx, maxy ]
+
 def main():
-    vid = {
-        'total_frame': 0,
-        'videos': [ ]
-    }
-    total_frame = 0
+    testset = { }
+
     for video_path in sorted(os.listdir(mgtv_root_path)):
         initial_points, circum_rectangle = parse_txt(os.path.join(mgtv_root_path, video_path, 'target_points.txt'))
         video_dict = {
-            'base_path': os.path.join(mgtv_root_path, video_path),
+            'name': video_path,
             'initial_points': initial_points,
             'initial_circum_rectangle': circum_rectangle,
-            'frame': [ ]
+            'image_files': [ ]
         }
         video_file_name = os.path.join(mgtv_root_path, video_path, 'raw.mp4')
         frame = [ ]
@@ -48,25 +46,21 @@ def main():
             success, image = vidcap.read()
             if not success: break
             f_name = '{:05d}.JPEG'.format(count)
-            absolute_f_name = os.path.join(prepross_output_path, 'videos', video_path, f_name)
-            os.makedirs(absolute_f_name, exist_ok = True)
+            f_dir_name = os.path.join(prepross_output_path, 'videos', video_path)
+            os.makedirs(f_dir_name, exist_ok = True)
+            absolute_f_name = os.path.join(f_dir_name, f_name)
             cv2.imwrite(absolute_f_name, image)
-            f = {
-                'frame_sz': [ image.shape[1], image.shape[0] ],
-                'img_path': f_name
-            }
-            frame.append(f)
+
+            frame.append(f_name)
             count += 1
-            total_frame += 1
-        video_dict['frame'] = frame
-        vid['videos'].append(video_dict)
-        print('video: {} has {} frames, cirrumrectangle: {}'.format(video_path, count, circum_rectangle))
-    vid['total_frame'] = total_frame
-    print('save json (raw vid info), please wait 1 min~')
-    print('total frame number: {}'.format(total_frame)) # change crop_image.py according to it
-    json_file_name = os.path.join(prepross_output_path, 'vid.json')
+
+        video_dict['image_files'] = frame
+        testset[video_path] = video_dict
+        print('testing video: {} has {} frames, cirrumrectangle: {}'.format(video_path, count, circum_rectangle))
+
+    json_file_name = os.path.join(prepross_output_path, 'mgtv_val.json')
     with open(json_file_name, 'w') as f:
-        json.dump(vid, f, indent=2)
+        json.dump(testset, f, indent=2)
     print('done!')
 
 if __name__ == '__main__':

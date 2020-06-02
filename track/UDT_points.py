@@ -1,3 +1,4 @@
+import os
 from os.path import join, isdir
 from os import makedirs
 import argparse
@@ -9,7 +10,7 @@ import cv2
 import time as time
 from util import crop_chw, gaussian_shaped_labels, cxy_wh_2_rect1, rect1_2_cxy_wh, cxy_wh_2_bbox
 from net import DCFNet
-from eval_otb import eval_auc
+from eval_mgtv import eval_mse
 
 
 class TrackerConfig(object):
@@ -108,12 +109,9 @@ if __name__ == '__main__':
     # base dataset path and setting
     parser = argparse.ArgumentParser(description='Test DCFNet on OTB')
     parser.add_argument('--dataset', metavar='SET', default='mgtv_val',
-                        choices=['mgtv_val', 'mgtv_test','OTB2013', 'OTB2015'], help='tune on which dataset')
-    # /train/work/ from author
-    # /work/crop_125_2.0/ from xqwang
+                        choices=['mgtv_val', 'mgtv_testa', 'mgtv_testb'], help='tune on which dataset')
     parser.add_argument('--model', metavar='PATH', default='/home/xqwang/projects/tracking/UDT/snapshots/crop_125_2.0/checkpoint.pth.tar')
-    #
-    #
+
     args = parser.parse_args()
 
     dataset = args.dataset
@@ -139,11 +137,10 @@ if __name__ == '__main__':
         points = np.array(annos[video]['initial_points']).astype(np.float64)
         target_pos, target_sz = rect1_2_cxy_wh(np.array(annos[video]['initial_circum_rectangle']))
         
-        image_files = [join(data_root_path, video_path_name, 'img', im_f) for im_f in annos[video]['image_files']]
+        image_files = [join(data_root_path, 'videos', video_path_name, frame_id) for frame_id in annos[video]['image_files']]
         n_images = len(image_files)
 
         tic = time.time()  # time start
-
         im = cv2.imread(image_files[0])  # HxWxC
 
         # confine results
@@ -158,7 +155,7 @@ if __name__ == '__main__':
         target = patch - config.net_average_image
         net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
 
-        res = [ points ]  # save in .txt
+        res = [ points.tolist() ]  # save in .txt == list[list[list]]
         patch_crop = np.zeros((config.num_scale, patch.shape[0], patch.shape[1], patch.shape[2]), np.float32)
         for f in range(1, n_images):  # track
             im = cv2.imread(image_files[f])
@@ -172,11 +169,11 @@ if __name__ == '__main__':
             response = net(torch.Tensor(search).cuda())
 
             values, indices = torch.topk(response.view(config.num_scale, -1), 4, dim = 1) # Sx4
-            values = values.data.cpu().numpy() * config.scale_penalties
+            values = values.data.cpu().numpy() * config.scale_penalties.reshape(config.num_scale, 1)
             best_scale_per_point = np.argmax(values, axis = 0) # shape 4
             for pi in range(4):
-                cur_scale_id = best_scale_per_point[pi]
-                index = indices[cur_scale_id, pi]
+                cur_point_scale_id = best_scale_per_point[pi]
+                index = indices[cur_point_scale_id, pi]
                 # shape 1
                 r_max, c_max = np.unravel_index(index.data.cpu().numpy(), config.net_input_size)
                 if r_max > config.net_input_size[1] / 2:
@@ -184,7 +181,7 @@ if __name__ == '__main__':
                 if c_max > config.net_input_size[0] / 2:
                     c_max = c_max - config.net_input_size[0]  
 
-                window_sz = target_sz * (config.scale_factor[best_scale] * (1 + config.padding))
+                window_sz = target_sz * (config.scale_factor[cur_point_scale_id] * (1 + config.padding))
                 # (x, y) += (col, row)
                 points[pi] = points[pi] + np.array([c_max, r_max]) * window_sz / config.net_input_size
             # target_pos = target_pos + np.array([c_max, r_max]) * window_sz / config.net_input_size
@@ -198,7 +195,7 @@ if __name__ == '__main__':
             target = patch - config.net_average_image
             net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda(), lr=config.interp_factor)
 
-            res.append(points)  # 1-index
+            res.append(points.tolist())  # 1-index
 
         toc = time.time() - tic
         fps = n_images / toc
@@ -206,13 +203,17 @@ if __name__ == '__main__':
         print('{:3d} Video: {:12s} Time: {:3.1f}s\tSpeed: {:3.1f}fps'.format(video_id, video, toc, fps))
 
         # save result
-        txt_base_path = join(result_output_path, dataset, 'DCFNet_test')
+        txt_base_path = join(result_output_path, dataset, 'DCFNet')
         os.makedirs(txt_base_path, exist_ok = True)
         result_path = join(txt_base_path, video + '.txt')
         with open(result_path, 'w') as f:
-            for x in res:
-                f.write(','.join(['{:.2f}'.format(i) for i in x]) + '\n')
+            for fi, ps in enumerate(res):
+                f.write('{} '.format(fi))
+                for pi, p in enumerate(ps):
+                    f.write('{:.2f},{:.2f}'.format(p[0], p[1]))
+                    f.write('\n' if pi == len(ps) - 1 else ' ')
+
 
     print('***Total Mean Speed: {:3.1f} (FPS)***'.format(np.mean(speed)))
 
-    # eval_mse(dataset, 'mgtv_test', 0, 1)
+    # eval_mse(txt_base_path, data_root_path)

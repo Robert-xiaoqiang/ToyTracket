@@ -227,7 +227,7 @@ def main():
     crop_base_path = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
     json_file_name = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'dataset.json')
     
-    save_path = join('/home/xqwang/projects/UDT/snapshots', 'crop_{:d}_{:1.1f}'.format(args.input_sz, args.padding))
+    save_path = join('/home/xqwang/projects/tracking/UDT/snapshots', 'crop_{:d}_{:1.1f}'.format(args.input_sz, args.padding))
     os.makedirs(save_path, exist_ok = True)
 
     train_dataset = MGTVTrainVID(file=json_file_name, root=crop_base_path, range=args.range)
