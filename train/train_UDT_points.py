@@ -1,15 +1,19 @@
 import argparse
 import shutil
+import os
 from os.path import join, isdir, isfile
 from os import makedirs
 
-from dataset import VID
+from dataset import VID, MGTVTrainVID
 from net import DCFNet
 import torch
 from torch.utils.data import dataloader
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import numpy as np
+np.random.seed(65535)
+import random
+random.seed(65535)
 import time
 import pdb
 
@@ -44,7 +48,7 @@ class TrackerConfig(object):
     yf = torch.rfft(torch.Tensor(y).view(1, 1, output_sz, output_sz).cuda(), signal_ndim=2)
     # cos_window = torch.Tensor(np.outer(np.hanning(crop_sz), np.hanning(crop_sz))).cuda()  # train without cos window
 
-def adjust_learning_rate(optimizer, epoch):
+def adjust_learning_rate(optimizer, epoch, args):
     lr = np.logspace(-2, -5, num=args.epochs)[epoch]
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -68,23 +72,23 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def save_checkpoint(state, is_best, filename=join(save_path, 'checkpoint.pth.tar')):
+def save_checkpoint(state, is_best, filename):
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, join(save_path, 'model_best.pth.tar'))
 
-def reponse_to_fake_yf(response, args, config):
-    values, indices = torch.topk(response.view(args.batch_size*gpu_num, -1), 4, dim = 1) # Bx4
-    fake_y = np.zeros((args.batch_size*gpu_num, 1, config.output_sz, config.output_sz))
+def reponse_to_fake_yf(response, initial_y, args, config):
+    values, indices = torch.topk(response.view(args.batch_size, -1), 4, dim = 1) # Bx4
+    fake_y = np.zeros((args.batch_size, 1, config.output_sz, config.output_sz))
     for pi in range(4):
         index = indices[:, pi]
         # shape B
         r_max, c_max = np.unravel_index(index.data.cpu().numpy(), [config.output_sz, config.output_sz])
-        for j in range(args.batch_size*gpu_num):
+        for j in range(args.batch_size):
             shift_y  = np.roll(initial_y, r_max[j], axis = 0)
             fake_y[j, 0] += np.roll(shift_y, c_max[j], axis = 1) # 4 times / samples
     fake_y /= 4.0
-    fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size*gpu_num, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
+    fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
     fake_yf = fake_yf.cuda(non_blocking=True)
 
     return fake_yf
@@ -97,9 +101,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args, config):
 
     # switch to train mode
     model.train()
-    label = config.yf.repeat(args.batch_size*gpu_num,1,1,1,1).cuda(non_blocking=True)
+    label = config.yf.repeat(args.batch_size,1,1,1,1).cuda(non_blocking=True)
     initial_y = config.y.copy()
-    target = torch.Tensor(config.y).cuda().unsqueeze(0).unsqueeze(0).repeat(args.batch_size * gpu_num, 1, 1, 1)  # for training
+    target = torch.Tensor(config.y).cuda().unsqueeze(0).unsqueeze(0).repeat(args.batch_size, 1, 1, 1)  # for training
 
     end = time.time()
     for i, (template, search1, search2) in enumerate(train_loader):
@@ -109,27 +113,22 @@ def train(train_loader, model, criterion, optimizer, epoch, args, config):
         template = template.cuda(non_blocking=True)
         search1 = search1.cuda(non_blocking=True)
         search2 = search2.cuda(non_blocking=True)
-        
-        if gpu_num > 1:
-            template_feat = model.module.feature(template)
-            search1_feat = model.module.feature(search1)
-            search2_feat = model.module.feature(search2)
-        else:
-            template_feat = model.feature(template)
-            search1_feat = model.feature(search1)
-            search2_feat = model.feature(search2)
+
+        template_feat = model.feature(template)
+        search1_feat = model.feature(search1)
+        search2_feat = model.feature(search2)
 
         # forward tracking 1
         with torch.no_grad():
             s1_response = model(template_feat, search1_feat, label)
 
-        fake_yf = reponse_to_fake_yf(s1_response, args, config)
+        fake_yf = reponse_to_fake_yf(s1_response, initial_y, args, config)
 
         # forward tracking 2
         with torch.no_grad():
             s2_response = model(search1_feat, search2_feat, fake_yf)
 
-        fake_yf = reponse_to_fake_yf(s2_response, args, config)
+        fake_yf = reponse_to_fake_yf(s2_response, initial_y, args, config)
     
         # backward tracking
         output = model(search2_feat, template_feat, fake_yf)
@@ -183,7 +182,7 @@ def get_args():
                         help='momentum')
     parser.add_argument('--weight-decay', '--wd', default=5e-5, type=float,
                         metavar='W', help='weight decay (default: 5e-5)')
-    parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+    parser.add_argument('--resume', default='/home/xqwang/projects/tracking/UDT/snapshots/crop_125_2.0/checkpoint.pth.tar', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     # parser.add_argument('--save', '-s', default='./work', type=str, help='directory for saving')
 
     args = parser.parse_args()
@@ -199,6 +198,7 @@ def main():
     model.cuda()
     gpu_num = torch.cuda.device_count()
     print('GPU NUM: {:2d}'.format(gpu_num))
+    args.batch_size *= gpu_num
     if gpu_num > 1:
         model = torch.nn.DataParallel(model, list(range(gpu_num))).cuda()
 
@@ -208,7 +208,6 @@ def main():
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
-    loaded_epoch = 0
     # optionally resume from a checkpoint
     if args.resume:
         if isfile(args.resume):
@@ -219,30 +218,30 @@ def main():
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
                 .format(args.resume, checkpoint['epoch']))
-            loaded_epoch = checkpoint['epoch']
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
 
     # training data
-    crop_base_path = join('/home/xqwang/projects/dataset/mgtv/train_preprocessed', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
-
+    crop_base_path = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
+    json_file_name = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'dataset.json')
+    
     save_path = join('/home/xqwang/projects/UDT/snapshots', 'crop_{:d}_{:1.1f}'.format(args.input_sz, args.padding))
     os.makedirs(save_path, exist_ok = True)
 
-    train_dataset = VID(root=crop_base_path, train=True, range=args.range)
-    val_dataset = VID(root=crop_base_path, train=False, range=args.range)
+    train_dataset = MGTVTrainVID(file=json_file_name, root=crop_base_path, range=args.range)
+    val_dataset = None
 
     train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size*gpu_num, shuffle=True,
+            train_dataset, batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True, drop_last=True)
 
     val_loader = None
 
     best_loss = 1e6 # for best epoch performance
-    for epoch in range(max(args.start_epoch, loaded_epoch), args.epochs):
-        adjust_learning_rate(optimizer, epoch)
+    for epoch in range(args.start_epoch, args.epochs):
+        adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args, config)
@@ -258,4 +257,7 @@ def main():
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
-        }, is_best)
+        }, is_best, join(save_path, 'checkpoint.pth.tar'))
+
+if __name__ == '__main__':
+    main()

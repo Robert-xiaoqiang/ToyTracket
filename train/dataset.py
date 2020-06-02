@@ -6,7 +6,7 @@ import numpy as np
 
 
 class VID(data.Dataset):
-    def __init__(self, file='dataset.json', root='crop_125_2.0', range=10, train=True):
+    def __init__(self, file, root, range=10, train=True):
         self.imdb = json.load(open(file, 'r'))
         self.root = root
         self.range = range
@@ -19,12 +19,8 @@ class VID(data.Dataset):
         else:
             target_id = self.imdb['val_set'][item]
 
-        # range_down = self.imdb['down_index'][target_id]
         range_up = self.imdb['up_index'][target_id]
-        # search_id = np.random.randint(-min(range_down, self.range), min(range_up, self.range)) + target_id
-        search_id1 = np.random.randint(1, min(range_up, self.range+1)) + target_id
-        search_id2 = np.random.randint(1, min(range_up, self.range+1)) + target_id
-
+        search_id1, search_id2 = np.random.choice(np.arange(1, min(range_up, self.range+1)), 2, replace = False) + target_id
         target = cv2.imread(join(self.root, '{:08d}.jpg'.format(target_id)))
         search1 = cv2.imread(join(self.root, '{:08d}.jpg'.format(search_id1)))
         search2 = cv2.imread(join(self.root, '{:08d}.jpg'.format(search_id2)))
@@ -32,7 +28,7 @@ class VID(data.Dataset):
         target = np.transpose(target, (2, 0, 1)).astype(np.float32) - self.mean
         search1 = np.transpose(search1, (2, 0, 1)).astype(np.float32) - self.mean
         search2 = np.transpose(search2, (2, 0, 1)).astype(np.float32) - self.mean
-
+        print(target.shape, search1.shape, search2.shape)
         return target, search1, search2
 
     def __len__(self):
@@ -40,6 +36,35 @@ class VID(data.Dataset):
             return len(self.imdb['train_set'])
         else:
             return len(self.imdb['val_set'])
+
+
+class MGTVTrainVID(data.Dataset):
+    def __init__(self, file, root, range=10):
+        self.imdb = json.load(open(file, 'r'))
+        self.root = root
+        self.range = range
+        self.mean = np.expand_dims(np.expand_dims(np.array([109, 120, 119]), axis=1), axis=1).astype(np.float32)
+
+    def __getitem__(self, item):
+        target_id = self.imdb['train_set'][item]
+
+        range_up = self.imdb['up_index'][target_id]
+        upper_bound = min(range_up, self.range+1)
+        subsequent_idx = np.arange(1, upper_bound)
+        search_id1, *left_over = np.random.choice(subsequent_idx, 2 if upper_bound > 4 else 1, replace = False) + target_id
+        search_id2 = left_over[0] if len(left_over) else search_id1
+        target = cv2.imread(join(self.root, '{:05d}.jpg'.format(target_id)))
+        search1 = cv2.imread(join(self.root, '{:05d}.jpg'.format(search_id1)))
+        search2 = cv2.imread(join(self.root, '{:05d}.jpg'.format(search_id2)))
+
+        target = np.transpose(target, (2, 0, 1)).astype(np.float32) - self.mean
+        search1 = np.transpose(search1, (2, 0, 1)).astype(np.float32) - self.mean
+        search2 = np.transpose(search2, (2, 0, 1)).astype(np.float32) - self.mean
+        
+        return target, search1, search2
+
+    def __len__(self):
+        return len(self.imdb['train_set'])
 
 
 if __name__ == '__main__':

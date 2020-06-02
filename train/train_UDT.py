@@ -17,9 +17,9 @@ parser = argparse.ArgumentParser(description='Training DCFNet in Pytorch 0.4.0')
 parser.add_argument('--input_sz', dest='input_sz', default=125, type=int, help='crop input size')
 parser.add_argument('--padding', dest='padding', default=2.0, type=float, help='crop padding size')
 parser.add_argument('--range', dest='range', default=10, type=int, help='select range')
-parser.add_argument('--epochs', default=50, type=int, metavar='N',
+parser.add_argument('--epochs', default=200, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+parser.add_argument('--start-epoch', default=50, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
@@ -33,7 +33,7 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=5e-5, type=float,
                     metavar='W', help='weight decay (default: 5e-5)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+parser.add_argument('--resume', default='/home/xqwang/projects/tracking/UDT/work/crop_125_2.0/checkpoint.pth.tar', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--save', '-s', default='./work', type=str, help='directory for saving')
 
 args = parser.parse_args()
@@ -42,12 +42,14 @@ print(args)
 best_loss = 1e6
 
 
-def gaussian_shaped_labels(sigma, sz):
+def gaussian_shaped_labels(sigma, sz, pos = None):
     x, y = np.meshgrid(np.arange(1, sz[0]+1) - np.floor(float(sz[0]) / 2), np.arange(1, sz[1]+1) - np.floor(float(sz[1]) / 2))
     d = x ** 2 + y ** 2
     g = np.exp(-0.5 / (sigma ** 2) * d)
-    g = np.roll(g, int(-np.floor(float(sz[0]) / 2.) + 1), axis=0)
-    g = np.roll(g, int(-np.floor(float(sz[1]) / 2.) + 1), axis=1)
+    g = np.roll(g, int(-np.floor(float(sz[1]) / 2.) + 1), axis=0)
+    g = np.roll(g, int(-np.floor(float(sz[0]) / 2.) + 1), axis=1)
+    if pos is not None:
+        pass
     return g.astype(np.float32)
 
 def output_drop(output, target):
@@ -108,7 +110,7 @@ if args.resume:
 cudnn.benchmark = True
 
 # training data
-crop_base_path = join('/home/xqwang/projects/tracking/UDT', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
+crop_base_path = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
 if not isdir(crop_base_path):
     print('please run gen_training_data.py --output_size {:d} --padding {:.1f}!'.format(args.input_sz, args.padding))
     exit()

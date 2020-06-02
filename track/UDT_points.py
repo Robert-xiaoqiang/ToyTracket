@@ -179,10 +179,10 @@ if __name__ == '__main__':
                 index = indices[cur_scale_id, pi]
                 # shape 1
                 r_max, c_max = np.unravel_index(index.data.cpu().numpy(), config.net_input_size)
-                if r_max > config.net_input_size[0] / 2:
-                    r_max = r_max - config.net_input_size[0]
-                if c_max > config.net_input_size[1] / 2:
-                    c_max = c_max - config.net_input_size[1]                           
+                if r_max > config.net_input_size[1] / 2:
+                    r_max = r_max - config.net_input_size[1]
+                if c_max > config.net_input_size[0] / 2:
+                    c_max = c_max - config.net_input_size[0]  
 
                 window_sz = target_sz * (config.scale_factor[best_scale] * (1 + config.padding))
                 # (x, y) += (col, row)
@@ -215,4 +215,4 @@ if __name__ == '__main__':
 
     print('***Total Mean Speed: {:3.1f} (FPS)***'.format(np.mean(speed)))
 
-    eval_auc(dataset, 'DCFNet_test', 0, 1)
+    # eval_mse(dataset, 'mgtv_test', 0, 1)

@@ -106,7 +106,7 @@ if __name__ == '__main__':
                         choices=['OTB2013', 'OTB2015'], help='tune on which dataset')
     # /train/work/ from author
     # /work/crop_125_2.0/ from xqwang
-    parser.add_argument('--model', metavar='PATH', default='/home/xqwang/projects/tracking/UDT/train/work/checkpoint.pth.tar')
+    parser.add_argument('--model', metavar='PATH', default='/home/xqwang/projects/tracking/UDT/work/crop_125_2.0/checkpoint.pth.tar')
     #
     #
     args = parser.parse_args()

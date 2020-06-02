@@ -4,3 +4,5 @@
 /train/work/
 /*.json
 /.vscode
+/train/__pycache__
+/track/__pycache__
