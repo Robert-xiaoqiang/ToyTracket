@@ -2,7 +2,8 @@
 /snapshots/
 /work/
 /train/work/
+/package/train/work/
 /*.json
-/.vscode
-/train/__pycache__/
-/track/__pycache__/
+/.vscode/
+/package/train/__pycache__/
+/package/track/__pycache__/

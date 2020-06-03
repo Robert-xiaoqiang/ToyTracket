@@ -4,8 +4,6 @@ import os
 from os.path import join, isdir, isfile
 from os import makedirs
 
-from dataset import VID, MGTVTrainVID
-from net import DCFNet
 import torch
 from torch.utils.data import dataloader
 import torch.nn as nn
@@ -16,6 +14,10 @@ import random
 random.seed(65535)
 import time
 import pdb
+
+from .dataset import VID, MGTVTrainVID
+from .net import DCFNet
+from ..track.UDT_points import DCFNetTracker
 
 def gaussian_shaped_labels(sigma, sz):
     x, y = np.meshgrid(np.arange(1, sz[0]+1) - np.floor(float(sz[0]) / 2), np.arange(1, sz[1]+1) - np.floor(float(sz[1]) / 2))
@@ -75,7 +77,7 @@ class AverageMeter(object):
 def save_checkpoint(state, is_best, filename):
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, join(save_path, 'model_best.pth.tar'))
+        shutil.copyfile(filename, os.path.join(os.path.dirname(filename), 'model_best.pth.tar'))
 
 def reponse_to_fake_yf(response, initial_y, args, config):
     values, indices = torch.topk(response.view(args.batch_size, -1), 4, dim = 1) # Bx4
@@ -158,15 +160,19 @@ def train(train_loader, model, criterion, optimizer, epoch, args, config):
                    data_time=data_time, loss=losses))
 
 
-def validate(val_loader, model, criterion, args, config):
-    pass
+def validate(tracker):
+    dataset = 'mgtv_val'
+    gt_root_path = '/home/xqwang/projects/tracking/datasets/mgtv/val'
+    data_root_path = '/home/xqwang/projects/tracking/datasets/mgtv/val_preprocessed'
+    result_output_path = '/home/xqwang/projects/tracking/UDT/result' 
+    return tracker.validate(dataset, data_root_path, gt_root_path, result_output_path)
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training DCFNet in Pytorch 0.4.0')
     parser.add_argument('--input_sz', dest='input_sz', default=125, type=int, help='crop input size')
     parser.add_argument('--padding', dest='padding', default=2.0, type=float, help='crop padding size')
     parser.add_argument('--range', dest='range', default=10, type=int, help='select range')
-    parser.add_argument('--epochs', default=50, type=int, metavar='N',
+    parser.add_argument('--epochs', default=200, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
@@ -190,7 +196,7 @@ def get_args():
     print(args)
     return args
     
-def main():
+def train_main():
     args = get_args()
     config = TrackerConfig()
 
@@ -239,19 +245,20 @@ def main():
 
     val_loader = None
 
-    best_loss = 1e6 # for best epoch performance
+    best_mse = 2147483647.0
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args, config)
 
+        tracker = DCFNetTracker(os.path.join(save_path, 'checkpoint.pth.tar'))
         # evaluate on validation set
-        validate(val_loader, model, criterion, args, config)
+        mse = validate(tracker)
 
         # remember best loss and save checkpoint
-        # is_best = loss < best_loss
-        # best_loss = min(best_loss, loss)
+        is_best = mse < best_mse
+        best_mse = min(best_mse, mse)
         is_best = False
         save_checkpoint({
             'epoch': epoch + 1,

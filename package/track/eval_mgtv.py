@@ -13,7 +13,7 @@ def parse_file(file_name: str) -> List[List[Tuple]]:
             frame_id, *points = line.split(' ')
             assert len(points) == 4, 'frame {} in file {} missing points'.format(frame_id, file_name)
             for point in points:
-                x, y = map(float, point.strip().slpit(','))
+                x, y = map(float, point.strip().split(','))
                 cur.append((x, y))
             ret.append(cur)
     return ret
@@ -22,7 +22,7 @@ def compute_one_frame(pred: List[Tuple], gt: List[Tuple]):
     pred = np.asarray(pred)
     gt = np.asarray(gt)
     difference = pred - gt
-    ret = np.sum(np.pow(difference, 2))
+    ret = np.sum(np.power(difference, 2))
     return ret.item() / 4.0
 
 def compute_one_video(pred_list, gt_list):
@@ -30,7 +30,7 @@ def compute_one_video(pred_list, gt_list):
     pred = np.asarray(pred_list)
     gt = np.asarray(gt_list)
     difference = pred - gt
-    ret = np.sum(np.pow(difference, 2))
+    ret = np.sum(np.power(difference, 2))
 
     return ret.item() / (4 * N)
 
@@ -38,7 +38,7 @@ def compute_one_video(pred_list, gt_list):
 def eval_mse(result_root_path, gt_root_path):
     ret = 0.0
     count = 0
-    for txt_name in os.lsdir(result_root_path):
+    for txt_name in os.listdir(result_root_path):
         absolute_txt_name = os.path.join(result_root_path, txt_name)
         # txt_base_name is just video name(id)
         txt_base_name, extension = os.path.splitext(txt_name)
@@ -49,5 +49,11 @@ def eval_mse(result_root_path, gt_root_path):
 
         assert len(pred_list) == len(gt_list), 'pred differs from gt in #frames'
         ret += compute_one_video(pred_list, gt_list)
+        print(ret)
         count += 1
     return ret / float(count)
+
+if __name__ == '__main__':
+    result_root_path = '/home/xqwang/projects/tracking/UDT/result/mgtv_val/DCFNet'
+    gt_root_path = '/home/xqwang/projects/tracking/datasets/mgtv/val'
+    print(eval_mse(result_root_path, gt_root_path))
