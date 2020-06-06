@@ -93,19 +93,20 @@ class DCFNetTracker:
                 response = self.net(torch.Tensor(search).cuda())
 
                 values, indices = torch.topk(response.view(self.config.num_scale, -1), 4, dim = 1) # Sx4
+                indices = indices.data.cpu().numpy()
                 values = values.data.cpu().numpy() * self.config.scale_penalties.reshape(self.config.num_scale, 1)
-                best_scale_per_point = np.argmax(values, axis = 0) # shape 4
+                best_scale_id_per_point = np.argmax(values, axis = 0) # shape 4
                 for pi in range(4):
-                    cur_point_scale_id = best_scale_per_point[pi]
-                    index = indices[cur_point_scale_id, pi]
+                    cur_point_best_scale_id = best_scale_id_per_point[pi]
+                    index = indices[cur_point_best_scale_id, pi]
                     # shape 1
-                    r_max, c_max = np.unravel_index(index.data.cpu().numpy(), self.config.net_input_size)
+                    r_max, c_max = np.unravel_index(index, self.config.net_input_size)
                     if r_max > self.config.net_input_size[1] / 2:
                         r_max = r_max - self.config.net_input_size[1]
                     if c_max > self.config.net_input_size[0] / 2:
                         c_max = c_max - self.config.net_input_size[0]  
 
-                    window_sz = target_sz * (self.config.scale_factor[cur_point_scale_id] * (1 + self.config.padding))
+                    window_sz = target_sz * (self.config.scale_factor[cur_point_best_scale_id] * (1 + self.config.padding))
                     # (x, y) += (col, row)
                     points[pi] = points[pi] + np.array([c_max, r_max]) * window_sz / self.config.net_input_size
                 # target_pos = target_pos + np.array([c_max, r_max]) * window_sz / self.config.net_input_size
@@ -206,10 +207,10 @@ def test_main():
 
             values, indices = torch.topk(response.view(config.num_scale, -1), 4, dim = 1) # Sx4
             values = values.data.cpu().numpy() * config.scale_penalties.reshape(config.num_scale, 1)
-            best_scale_per_point = np.argmax(values, axis = 0) # shape 4
+            best_scale_id_per_point = np.argmax(values, axis = 0) # shape 4
             for pi in range(4):
-                cur_point_scale_id = best_scale_per_point[pi]
-                index = indices[cur_point_scale_id, pi]
+                cur_point_best_scale_id = best_scale_id_per_point[pi]
+                index = indices[cur_point_best_scale_id, pi]
                 # shape 1
                 r_max, c_max = np.unravel_index(index.data.cpu().numpy(), config.net_input_size)
                 if r_max > config.net_input_size[1] / 2:
@@ -217,7 +218,7 @@ def test_main():
                 if c_max > config.net_input_size[0] / 2:
                     c_max = c_max - config.net_input_size[0]  
 
-                window_sz = target_sz * (config.scale_factor[cur_point_scale_id] * (1 + config.padding))
+                window_sz = target_sz * (config.scale_factor[cur_point_best_scale_id] * (1 + config.padding))
                 # (x, y) += (col, row)
                 points[pi] = points[pi] + np.array([c_max, r_max]) * window_sz / config.net_input_size
             # target_pos = target_pos + np.array([c_max, r_max]) * window_sz / config.net_input_size

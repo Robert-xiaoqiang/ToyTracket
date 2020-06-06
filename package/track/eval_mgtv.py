@@ -49,7 +49,6 @@ def eval_mse(result_root_path, gt_root_path):
 
         assert len(pred_list) == len(gt_list), 'pred differs from gt in #frames'
         ret += compute_one_video(pred_list, gt_list)
-        print(ret)
         count += 1
     return ret / float(count)
 
