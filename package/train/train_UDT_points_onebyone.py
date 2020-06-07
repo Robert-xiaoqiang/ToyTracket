@@ -18,7 +18,7 @@ import pdb
 from tensorboardX import SummaryWriter
 
 from .dataset import VID, MGTVTrainVID
-from .net import DCFNet
+from .net import TopModel
 from ..track.UDT_points import DCFNetTracker
 
 def gaussian_shaped_labels(sigma, sz):
@@ -39,12 +39,12 @@ def output_drop(output, target):
         output[index[i],...] = target[index[i],...]
     return output
 
-def unravel_index(index, shape):
-    out = []
-    for dim in reversed(shape):
-        out.append(index % dim)
-        index = index // dim
-    return tuple(reversed(out))
+def output_drop_list(output, target):
+    ret = [ ]
+    for i in range(len(output)):
+        ret.append(output_drop(output[i], target[i]))
+
+    return tuple(ret)
 
 class TrackerConfig(object):
     crop_sz = 125
@@ -85,39 +85,28 @@ def save_checkpoint(state, is_best, filename):
 def save_best_checkpoint(state, dirname):
     torch.save(state, os.path.join(dirname, 'model_best.pth.tar'))
 
-def reponse_to_fake_yf(response, initial_y, args, config):
-    values, indices = torch.topk(response.view(args.batch_size, -1), 4, dim = 1) # Bx4
-    fake_y = torch.zeros((args.batch_size, 1, config.output_sz, config.output_sz)).cuda()
-    for pi in range(4):
-        index = indices[:, pi]
-        # shape B
-        # r_max, c_max = np.unravel_index(index.data.cpu().numpy(), [config.output_sz, config.output_sz])
-        r_max, c_max = unravel_index(index, [config.output_sz, config.output_sz])
-        for j in range(args.batch_size):
-            # shift_y  = np.roll(initial_y, r_max[j], axis = 0)
-            # fake_y[j, 0] += np.roll(shift_y, c_max[j], axis = 1) # 4 times for every samples
-            shift_y  = torch.roll(initial_y, r_max[j].int().item(), dims = 0)
-            fake_y[j, 0] += torch.roll(shift_y, c_max[j].int().item(), dims = 1) # 4 times for every samples            
-    fake_y /= 4.0
-    # fake_yf = torch.rfft(torch.Tensor(fake_y).view(args.batch_size, 1, config.output_sz, config.output_sz).cuda(), signal_ndim = 2)
-    fake_yf = torch.rfft(fake_y.view(args.batch_size, 1, config.output_sz, config.output_sz), signal_ndim = 2)
-    fake_yf = fake_yf.cuda(non_blocking=True)
+def list_loss(criterion, output, target, args):
+    ret = 0.0
+    for i in range(len(output)):
+        # print(output[i], target[i])
+        ret += criterion(output[i], target[i])
+    ret /= args.batch_size
 
-    return fake_yf
+    return ret
 
-def train(train_loader, model, criterion, optimizer, epoch, args, config):
+def train(train_loader, model, criterion, optimizer, epoch, writer, args, config):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
 
     # switch to train mode
     model.train()
-    label = config.yf.repeat(args.batch_size,1,1,1,1).cuda(non_blocking=True)
-    # initial_y = config.y.copy()
-    initial_y = torch.FloatTensor(config.y.copy()).cuda()
-    target = torch.Tensor(config.y).cuda().unsqueeze(0).unsqueeze(0).repeat(args.batch_size, 1, 1, 1)  # for training
 
+    target = torch.FloatTensor(config.y).cuda().unsqueeze(0).unsqueeze(0).repeat(args.batch_size, 1, 1, 1)  # for training
+    # target is the same for 4 points now
+    target = [ target ] * 4
     end = time.time()
+    num_train_batch_per_epoch = len(train_loader)
     for i, (template, search1, search2) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -125,34 +114,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args, config):
         template = template.cuda(non_blocking=True)
         search1 = search1.cuda(non_blocking=True)
         search2 = search2.cuda(non_blocking=True)
+        output = model(template, search1, search2)
 
-        feature_net = model.feature # if hasattr(model, 'feature') else model.module.feature
-        template_feat = feature_net(template)
-        search1_feat = feature_net(search1)
-        search2_feat = feature_net(search2)
-
-        # forward tracking 1
-        with torch.no_grad():
-            s1_response = model(template_feat, search1_feat, label)
-
-        fake_yf = reponse_to_fake_yf(s1_response, initial_y, args, config)
-
-        # forward tracking 2
-        with torch.no_grad():
-            s2_response = model(search1_feat, search2_feat, fake_yf)
-
-        fake_yf = reponse_to_fake_yf(s2_response, initial_y, args, config)
-    
-        # backward tracking
-        output = model(search2_feat, template_feat, fake_yf)
         # target is real, whereas label is complex
-        output = output_drop(output, target)  # the sample dropout is necessary, otherwise we find the loss tends to become unstable
-
-        # consistency loss. target is the initial Gaussian label
-        loss = criterion(output, target)/template.size(0)
+        output = output_drop_list(output, target)  # the sample dropout is necessary, otherwise we find the loss tends to become unstable
+        
+        loss = list_loss(criterion, output, target, args)
         # measure accuracy and record loss
         losses.update(loss.item())
-
+        writer.add_scalar('train/loss_avg', losses.avg, num_train_batch_per_epoch * epoch + i)
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -166,9 +136,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args, config):
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(
+                  'Loss {losses.val:.8f} ({losses.avg:.8f})\t'.format(
                    epoch, i, len(train_loader), batch_time=batch_time,
-                   data_time=data_time, loss=losses))
+                   data_time=data_time, losses=losses))
     return losses.avg
 
 
@@ -192,8 +162,8 @@ def get_args():
                         metavar='N', help='print frequency (default: 10)')
     parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                         help='number of data loading workers (default: 8)')
-    parser.add_argument('-b', '--batch-size', default=64, type=int,
-                        metavar='N', help='mini-batch size (default: 32)')
+    parser.add_argument('-b', '--batch-size', default=48, type=int,
+                        metavar='N', help='mini-batch size (default: 16)')
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate')
     parser.add_argument('--lr-decay', default=0.9, type=float,
@@ -212,17 +182,20 @@ def get_args():
     
 def train_main():
     args = get_args()
-    config = TrackerConfig()
-
-    model = DCFNet(config=config)
-    model.cuda()
     gpu_num = torch.cuda.device_count()
     print('GPU NUM: {:2d}'.format(gpu_num))
+    
+    args.replicata_batch_size = args.batch_size
     args.batch_size *= gpu_num
-    if gpu_num > 1:
-        model = torch.nn.DataParallel(model, list(range(gpu_num))).cuda()
+    args.gpu_num = gpu_num
 
-    criterion = nn.MSELoss(size_average=False).cuda()
+    config = TrackerConfig()
+
+    model = TopModel(args, config)
+    model.cuda()
+    model = torch.nn.DataParallel(model, list(range(gpu_num)))
+
+    criterion = nn.MSELoss(reduction = 'mean').cuda()
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
@@ -233,7 +206,7 @@ def train_main():
     # training data
     crop_base_path = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'crop_{:d}_{:.1f}'.format(args.input_sz, args.padding))
     json_file_name = join('/home/xqwang/projects/tracking/datasets/mgtv/train_preprocessed', 'dataset.json')
-    experiment_key = 'torchagain'
+    experiment_key = 'onebyone'
     save_path = join('/home/xqwang/projects/tracking/UDT/snapshots', experiment_key, 'crop_{:d}_{:1.1f}'.format(args.input_sz, args.padding))
     os.makedirs(save_path, exist_ok = True)
     resume_path = join(save_path, 'checkpoint.pth.tar')
@@ -266,8 +239,7 @@ def train_main():
     best_mse = 2147483647.0
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
-        train_loss = train(train_loader, model, criterion, optimizer, epoch, args, config)
-        # writer.add_scalar('train/loss_avg', train_loss, epoch)
+        train_loss = train(train_loader, model, criterion, optimizer, epoch, writer, args, config)
         lr_scheduler.step(epoch + 1)
         save_checkpoint({
             'epoch': epoch + 1,

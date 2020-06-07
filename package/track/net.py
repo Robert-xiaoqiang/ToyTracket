@@ -66,6 +66,41 @@ class DCFNet(nn.Module):
 
     def load_param(self, path='param.pth'):
         checkpoint = torch.load(path)
+        state_dict = checkpoint['state_dict'] 
+        if 'module' in list(state_dict.keys())[0]:  # train with nn.DataParallel
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                name = k[7:]  # remove `module.`
+                new_state_dict[name] = v
+            self.load_state_dict(new_state_dict)
+        else:
+            self.load_state_dict(state_dict)
+
+class DCFNetCollection(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.p0net = DCFNet(config)
+        self.p1net = DCFNet(config)
+        self.p2net = DCFNet(config)
+        self.p3net = DCFNet(config)
+
+    def forward(self, x):
+        ret = [ ]
+        for i in range(4):
+            ret.append(getattr(self, 'p{}net'.format(i))(x))
+        return tuple(ret)
+    
+    def update(self, z, lr=1.0):
+        assert len(z) == 4, 'missing feature to update'
+        for i in range(4):
+            getattr(self, 'p{}net'.format(i)).update(z[i], lr)
+
+    def load_param_subnet(self, state_dict)
+        
+
+    def load_param(self, path):
+        checkpoint = torch.load(path)    
         if 'state_dict' in checkpoint.keys():  # from training result
             state_dict = checkpoint['state_dict'] 
             if 'module' in list(state_dict.keys())[0]:  # train with nn.DataParallel
@@ -79,7 +114,6 @@ class DCFNet(nn.Module):
                 self.load_state_dict(state_dict)
         else:
             self.feature.load_state_dict(checkpoint)
-
 
 if __name__ == '__main__':
 
