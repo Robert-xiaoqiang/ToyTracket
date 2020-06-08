@@ -66,7 +66,7 @@ class DCFNetCollection(nn.Module):
     def get_feature(self, template, search1, search2):
         feature_t = [ ]
         feature_s1 = [ ]
-        feature_s2= [ ]
+        feature_s2 = [ ]
         for i in range(4):
             feature_t.append(getattr(self, 'p{}net'.format(i)).feature(template))
         for i in range(4):

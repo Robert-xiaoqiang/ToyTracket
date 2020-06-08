@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch  # pytorch 0.4.0! fft
 import numpy as np
 import cv2
+from collections import OrderedDict
 
 from functools import partial
 import pickle
@@ -92,28 +93,28 @@ class DCFNetCollection(nn.Module):
         return tuple(ret)
     
     def update(self, z, lr=1.0):
-        assert len(z) == 4, 'missing feature to update'
+        # assert len(z) == 4, 'missing feature to update'
+        # for i in range(4):
+        #     getattr(self, 'p{}net'.format(i)).update(z[i], lr)
         for i in range(4):
-            getattr(self, 'p{}net'.format(i)).update(z[i], lr)
-
-    def load_param_subnet(self, state_dict)
-        
+            getattr(self, 'p{}net'.format(i)).update(z, lr)
 
     def load_param(self, path):
-        checkpoint = torch.load(path)    
-        if 'state_dict' in checkpoint.keys():  # from training result
-            state_dict = checkpoint['state_dict'] 
-            if 'module' in list(state_dict.keys())[0]:  # train with nn.DataParallel
-                from collections import OrderedDict
-                new_state_dict = OrderedDict()
-                for k, v in state_dict.items():
-                    name = k[7:]  # remove `module.`
-                    new_state_dict[name] = v
-                self.load_state_dict(new_state_dict)
-            else:
-                self.load_state_dict(state_dict)
+        # network + optimizer + scheduler
+        checkpoint = torch.load(path)
+        # state_dict for train.net.TopModel
+        state_dict = checkpoint['state_dict']
+        new_state_dict = OrderedDict()
+        if 'module' in list(state_dict.keys())[0]:  # train with nn.DataParallel
+            for k, v in state_dict.items():
+                new_k = k[6+1+5+1:]  # remove `module.model.`
+                new_state_dict[new_k] = v
         else:
-            self.feature.load_state_dict(checkpoint)
+            for k, v in state_dict.items():
+                new_k = k[5+1:]  # remove `model.`
+                new_state_dict[new_k] = v
+        # state_dict for train.net.DCFNetCollection
+        self.load_state_dict(new_state_dict)
 
 if __name__ == '__main__':
 

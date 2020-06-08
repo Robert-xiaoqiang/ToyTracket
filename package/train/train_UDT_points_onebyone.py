@@ -19,7 +19,7 @@ from tensorboardX import SummaryWriter
 
 from .dataset import VID, MGTVTrainVID
 from .net import TopModel
-from ..track.UDT_points import DCFNetTracker
+from ..track.UDT_points_onebyone import DCFNetCollectionTracker
 
 def gaussian_shaped_labels(sigma, sz):
     x, y = np.meshgrid(np.arange(1, sz[0]+1) - np.floor(float(sz[0]) / 2), np.arange(1, sz[1]+1) - np.floor(float(sz[1]) / 2))
@@ -248,10 +248,11 @@ def train_main():
             'lr_scheduler': lr_scheduler.state_dict()
         }, False, join(save_path, 'checkpoint.pth.tar'))
 
-        tracker = DCFNetTracker(os.path.join(save_path, 'checkpoint.pth.tar'))
+        tracker = DCFNetCollectionTracker(os.path.join(save_path, 'checkpoint.pth.tar'))
         # evaluate on validation set
         mse = validate(tracker)
         writer.add_scalar('val/mse', mse, epoch)
+        print('MSE on Val set: {:.4f}'.format(mse))
         # remember best loss and save checkpoint
         is_best = mse < best_mse
         best_mse = min(best_mse, mse)

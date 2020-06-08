@@ -10,7 +10,7 @@ import cv2
 import time
 
 from .util import crop_chw, gaussian_shaped_labels, cxy_wh_2_rect1, rect1_2_cxy_wh, cxy_wh_2_bbox
-from .net import DCFNet
+from .net import DCFNetCollection
 from .eval_mgtv import eval_mse
 
 
@@ -30,7 +30,7 @@ class TrackerConfig(object):
     min_scale_factor = 0.2
     max_scale_factor = 5
     scale_penalty = 0.9925
-    scale_penalties = scale_penalty ** (np.abs((np.arange(num_scale) - num_scale / 2)))
+    scale_penalties = torch.FloatTensor(scale_penalty ** (np.abs((np.arange(num_scale) - num_scale / 2)))).cuda()
 
     net_input_size = [crop_sz, crop_sz]
     net_average_image = np.array([104, 117, 123]).reshape(-1, 1, 1).astype(np.float32)
@@ -39,14 +39,20 @@ class TrackerConfig(object):
     yf = torch.rfft(torch.Tensor(y).view(1, 1, crop_sz, crop_sz).cuda(), signal_ndim=2)
     cos_window = torch.Tensor(np.outer(np.hanning(crop_sz), np.hanning(crop_sz))).cuda()
 
+def unravel_index(index, shape):
+    out = []
+    for dim in reversed(shape):
+        out.append(index % dim)
+        index = index // dim
+    return tuple(reversed(out))
 
-class DCFNetTracker:
+class DCFNetCollectionTracker:
     def __init__(self, model_path):
         self.model_path = model_path
 
         # default parameter and load feature extractor network
         self.config = TrackerConfig()
-        self.net = DCFNet(self.config)
+        self.net = DCFNetCollection(self.config)
         self.net.load_param(self.model_path)
         self.net.eval().cuda()
     
@@ -92,27 +98,20 @@ class DCFNetTracker:
                 search = patch_crop - self.config.net_average_image
                 response = self.net(torch.Tensor(search).cuda())
 
-                values, indices = torch.topk(response.view(self.config.num_scale, -1), 4, dim = 1) # Sx4
-                indices = indices.data.cpu().numpy()
-                values = values.data.cpu().numpy() * self.config.scale_penalties.reshape(self.config.num_scale, 1)
-                best_scale_id_per_point = np.argmax(values, axis = 0) # shape 4
                 for pi in range(4):
-                    cur_point_best_scale_id = best_scale_id_per_point[pi]
-                    index = indices[cur_point_best_scale_id, pi]
-                    # shape 1
-                    r_max, c_max = np.unravel_index(index, self.config.net_input_size)
+                    value, index = torch.max(response[pi].view(self.config.num_scale, -1), dim = 1) # S
+                    value *= self.config.scale_penalties
+                    best_scale_id = torch.argmax(value)
+                    r_max, c_max = unravel_index(index[best_scale_id], self.config.net_input_size)
                     if r_max > self.config.net_input_size[1] / 2:
                         r_max = r_max - self.config.net_input_size[1]
                     if c_max > self.config.net_input_size[0] / 2:
-                        c_max = c_max - self.config.net_input_size[0]  
-
-                    window_sz = target_sz * (self.config.scale_factor[cur_point_best_scale_id] * (1 + self.config.padding))
-                    # (x, y) += (col, row)
-                    points[pi] = points[pi] + np.array([c_max, r_max]) * window_sz / self.config.net_input_size
-                # target_pos = target_pos + np.array([c_max, r_max]) * window_sz / self.config.net_input_size
-                # target_sz = np.minimum(np.maximum(window_sz / (1 + self.config.padding), min_sz), max_sz)          
-                target_pos, target_sz = get_new_target(points)
+                        c_max = c_max - self.config.net_input_size[0]
+                    window_sz = target_sz * (self.config.scale_factor[best_scale_id] * (1 + self.config.padding))
+                    points[pi] += np.array([c_max.item(), r_max.item()]) * window_sz / self.config.net_input_size
                 
+                target_pos, target_sz = get_new_target(points)
+
                 # model update
                 window_sz = target_sz * (1 + self.config.padding)
                 bbox = cxy_wh_2_bbox(target_pos, window_sz)
@@ -134,15 +133,6 @@ class DCFNetTracker:
                         f.write('\n' if pi == len(ps) - 1 else ' ')
         mse = eval_mse(txt_base_path, gt_root_path)
         return mse
-class DCFNetTrackerCollection:
-    def __init__(self, model_path):
-        self.model_path = model_path
-
-        # default parameter and load feature extractor network
-        self.config = TrackerConfig()
-        self.net = DCFNet(self.config)
-        self.net.load_param(self.model_path)
-        self.net.eval().cuda()
  
 def get_new_target(points):
     maxxy = np.max(points, axis = 0)
