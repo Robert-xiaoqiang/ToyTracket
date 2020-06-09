@@ -142,12 +142,12 @@ def train(train_loader, model, criterion, optimizer, epoch, writer, args, config
     return losses.avg
 
 
-def validate(tracker):
+def validate(tracker, experiment):
     dataset = 'mgtv_val'
     gt_root_path = '/home/xqwang/projects/tracking/datasets/mgtv/val'
     data_root_path = '/home/xqwang/projects/tracking/datasets/mgtv/val_preprocessed'
     result_output_path = '/home/xqwang/projects/tracking/UDT/result' 
-    return tracker.validate(dataset, data_root_path, gt_root_path, result_output_path)
+    return tracker.validate(dataset, experiment, data_root_path, gt_root_path, result_output_path)
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training DCFNet in Pytorch 0.4.0')
@@ -250,7 +250,7 @@ def train_main():
 
         tracker = DCFNetCollectionTracker(os.path.join(save_path, 'checkpoint.pth.tar'))
         # evaluate on validation set
-        mse = validate(tracker)
+        mse = validate(tracker, experiment_key)
         writer.add_scalar('val/mse', mse, epoch)
         print('MSE on Val set: {:.4f}'.format(mse))
         # remember best loss and save checkpoint
